@@ -1,0 +1,6 @@
+[submodule "SHA256"]
+	path = SHA256
+	url = https://github.com/System-Glitch/SHA256.git
+[submodule "zipper"]
+	path = zipper
+	url = https://github.com/sebastiandev/zipper.git

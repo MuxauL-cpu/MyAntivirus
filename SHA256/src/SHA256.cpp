@@ -1,0 +1,163 @@
+#include "SHA256.h"
+#include <cstring>
+#include <sstream>
+#include <iomanip>
+
+SHA256::SHA256() : m_BlockLength(0), m_BitLength(0) {
+	m_state[0] = 0x6a09e667;
+	m_state[1] = 0xbb67ae85;
+	m_state[2] = 0x3c6ef372;
+	m_state[3] = 0xa54ff53a;
+	m_state[4] = 0x510e527f;
+	m_state[5] = 0x9b05688c;
+	m_state[6] = 0x1f83d9ab;
+	m_state[7] = 0x5be0cd19;
+}
+
+void SHA256::update(const uint8_t* data, size_t length) {
+	for (size_t i = 0; i < length; i++) {
+		m_Data[m_BlockLength++] = data[i];
+		if (m_BlockLength == 64) {
+			transform();
+
+			m_BitLength += 512;
+			m_BlockLength = 0;
+		}
+	}
+}
+
+void SHA256::update(const std::string& data) {
+	update(reinterpret_cast<const uint8_t*> (data.c_str()), data.size());
+}
+
+uint8_t* SHA256::digest() {
+	uint8_t* hash = new uint8_t[32];
+
+	pad();
+	revert(hash);
+
+	return hash;
+}
+
+uint32_t SHA256::rotr(uint32_t x, uint32_t n) {
+	return (x >> n) | (x << (32 - n));
+}
+
+uint32_t SHA256::choose(uint32_t e, uint32_t f, uint32_t g) {
+	return (e & f) ^ (~e & g);
+}
+
+uint32_t SHA256::majority(uint32_t a, uint32_t b, uint32_t c) {
+	return (a & (b | c)) | (b & c);
+}
+
+uint32_t SHA256::sig0(uint32_t x) {
+	return SHA256::rotr(x, 7) ^ SHA256::rotr(x, 18) ^ (x >> 3);
+}
+
+uint32_t SHA256::sig1(uint32_t x) {
+	return SHA256::rotr(x, 17) ^ SHA256::rotr(x, 19) ^ (x >> 10);
+}
+
+void SHA256::transform() {
+	uint32_t major, xor_A, ch, xor_E, sum, new_A, new_E, m[64];
+	uint32_t state[8];
+
+	for (uint8_t i = 0, j = 0; i < 16; i++, j += 4) { // Split data in 32 bit blocks for the 16 first words
+		m[i] = (m_Data[j] << 24) | (m_Data[j + 1] << 16) | (m_Data[j + 2] << 8) | (m_Data[j + 3]);
+	}
+
+	for (uint8_t k = 16; k < 64; k++) { // Remaining 48 blocks
+		m[k] = SHA256::sig1(m[k - 2]) + m[k - 7] + SHA256::sig0(m[k - 15]) + m[k - 16];
+	}
+
+	for (uint8_t i = 0; i < 8; i++) {
+		state[i] = m_state[i];
+	}
+
+	for (uint8_t i = 0; i < 64; i++) {
+		major = SHA256::majority(state[0], state[1], state[2]);
+		xor_A = SHA256::rotr(state[0], 2) ^ SHA256::rotr(state[0], 13) ^ SHA256::rotr(state[0], 22);
+
+		ch = choose(state[4], state[5], state[6]);
+
+		xor_E = SHA256::rotr(state[4], 6) ^ SHA256::rotr(state[4], 11) ^ SHA256::rotr(state[4], 25);
+
+		sum = m[i] + K[i] + state[7] + ch + xor_E;
+		new_A = xor_A + major + sum;
+		new_E = state[3] + sum;
+
+		state[7] = state[6];
+		state[6] = state[5];
+		state[5] = state[4];
+		state[4] = new_E;
+		state[3] = state[2];
+		state[2] = state[1];
+		state[1] = state[0];
+		state[0] = new_A;
+	}
+
+	for (uint8_t i = 0; i < 8; i++) {
+		m_state[i] += state[i];
+	}
+}
+
+void SHA256::pad() {
+
+	uint64_t i = m_BlockLength;
+	uint8_t end = m_BlockLength < 56 ? 56 : 64;
+
+	m_Data[i++] = 0x80;
+	while (i < end) {
+		m_Data[i++] = 0x00;
+	}
+
+	if (m_BlockLength >= 56) {
+		transform();
+		memset(m_Data, 0, 56);
+	}
+
+	m_BitLength += m_BlockLength * 8;
+	m_Data[63] = m_BitLength;
+	m_Data[62] = m_BitLength >> 8;
+	m_Data[61] = m_BitLength >> 16;
+	m_Data[60] = m_BitLength >> 24;
+	m_Data[59] = m_BitLength >> 32;
+	m_Data[58] = m_BitLength >> 40;
+	m_Data[57] = m_BitLength >> 48;
+	m_Data[56] = m_BitLength >> 56;
+	transform();
+}
+
+void SHA256::revert(uint8_t* hash) {
+	for (uint8_t i = 0; i < 4; i++) {
+		for (uint8_t j = 0; j < 8; j++) {
+			hash[i + (j * 4)] = (m_state[j] >> (24 - i * 8)) & 0x000000ff;
+		}
+	}
+}
+
+std::string SHA256::toString(const uint8_t* digest) {
+	std::stringstream s;
+	s << std::setfill('0') << std::hex;
+
+	for (uint8_t i = 0; i < 32; i++) {
+		s << std::setw(2) << (unsigned int)digest[i];
+	}
+
+	return s.str();
+}
+
+std::u16string SHA256::toU16String(const uint8_t* digest)
+{
+	std::stringstream s;
+	s << std::setfill('0') << std::hex;
+
+	for (uint8_t i = 0; i < 32; i++) {
+		s << std::setw(2) << (unsigned int)digest[i];
+	}
+
+	std::string temp = s.str();
+	std::u16string Ret(temp.begin(), temp.end());
+	return Ret;
+}
